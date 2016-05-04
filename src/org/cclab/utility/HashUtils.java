@@ -6,8 +6,10 @@ import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.xml.bind.DatatypeConverter;
 
 /**
  *
@@ -23,26 +25,40 @@ public class HashUtils {
     }
     
     public static String byte2hex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        
-        for (byte b: bytes) {
-            int v = b & 0xff;
-            
-            sb.append(HEX_CHARS[v >> 2]).append(HEX_CHARS[v & 0xf]);
-        }
-        
-        return sb.toString();
+        return byte2HEX(bytes).toLowerCase();
     }
     
     public static String byte2HEX(byte[] bytes) {
-        return byte2hex(bytes).toUpperCase();
+        return DatatypeConverter.printHexBinary(bytes);
     }
     
-    public static byte[] sha256(byte[] bytes) {
+    public static byte[] hex2byte(String s) {
+        return DatatypeConverter.parseHexBinary(s);
+    }
+    
+    public static byte[] sha256(byte[]... bytesArr) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             
-            md.update(bytes);
+            for (byte[] bytes: bytesArr) {
+                md.update(bytes);
+            }
+            
+            return md.digest();
+        } catch (NoSuchAlgorithmException ex) {
+            LOG.log(Level.SEVERE, null, ex);
+            
+            return null;
+        }
+    }
+    
+    public static byte[] sha256(Collection<byte[]> bytesCollection) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            
+            for (byte[] bytes: bytesCollection) {
+                md.update(bytes);
+            }
             
             return md.digest();
         } catch (NoSuchAlgorithmException ex) {
