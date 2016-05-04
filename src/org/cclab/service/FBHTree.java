@@ -30,10 +30,10 @@ public class FBHTree {
         }
         
         this.height = treeHeight;
-        this.nodes = new Node[(1 << height) - 1];
+        this.nodes = new Node[1 << height];
         
-        for (int i = nodes.length - 1; i >= 0; i--) {
-            if (i > (1 << (height - 2))) { // leaf node
+        for (int i = nodes.length - 1; i > 0; i--) {
+            if (i >= (1 << (height - 1))) { // leaf node
                 nodes[i] = new Node(i, null, null);
             } else { // internal node
                 nodes[i] = new Node(i, nodes[i * 2], nodes[(i * 2) + 1]);
@@ -62,7 +62,7 @@ public class FBHTree {
             }
         }
         
-        return (1 << (height - 2)) + index % (1 << (height - 1));
+        return (1 << (height - 1)) + Math.abs(index) % (1 << (height - 1));
     }
     
     /**
@@ -78,8 +78,6 @@ public class FBHTree {
         for (int i = index; i > 0; i >>= 1) {
             nodes[i].setDirty(true);
         }
-        
-        nodes[0].setDirty(true);
     }
     
     /**
@@ -96,14 +94,20 @@ public class FBHTree {
      * @return <tt>true</tt> if the specified key was in the FBHTree.
      */
     public boolean remove(String key) {
-        return nodes[calcLeafIndex(key)].remove(key);
+        int index = calcLeafIndex(key);
+        
+        for (int i = index; i > 0; i /= 2) {
+            nodes[i].setDirty(true);
+        }
+        
+        return nodes[index].remove(key);
     }
     
     /**
      * Returns the root hash of this FBHTree.
      */
     public byte[] getRootHash() {
-        return nodes[0].getContentDigest();
+        return nodes[1].getContentDigest();
     }
     
     /**
@@ -130,7 +134,7 @@ public class FBHTree {
         
         // internal nodes
         for (; index > 0; index /= 2) {
-            if (index % 2 == 1) { // left => [currentSlice,rightDigest]
+            if (index % 2 == 0) { // left => [currentSlice,rightDigest]
                 byte[] rightDigest = nodes[index + 1].getContentDigest();
                 
                 slice = "[" + slice + "," + HashUtils.byte2hex(rightDigest) + "]";
