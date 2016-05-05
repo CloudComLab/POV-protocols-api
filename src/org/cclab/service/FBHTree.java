@@ -1,6 +1,7 @@
 package org.cclab.service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -133,21 +134,22 @@ public class FBHTree {
         slice += ")";
         
         // internal nodes
-        for (; index > 0; index /= 2) {
-            if (index % 2 == 0) { // left => [currentSlice,rightDigest]
+        for (; index > 1; index /= 2) {
+            byte[] parentDigest = nodes[index / 2].getContentDigest();
+            String parentHexStr = HashUtils.byte2hex(parentDigest);
+            
+            if (index % 2 == 0) { // left => [currentSlice,parentDigest,rightDigest]
                 byte[] rightDigest = nodes[index + 1].getContentDigest();
+                String rightHexStr = HashUtils.byte2hex(rightDigest);
                 
-                slice = "[" + slice + "," + HashUtils.byte2hex(rightDigest) + "]";
-            } else { // right => [leftDigest,currentSlice]
+                slice = "[" + slice + "," + parentHexStr + "," + rightHexStr + "]";
+            } else { // right => [leftDigest,parentDigest,currentSlice]
                 byte[] leftDigest = nodes[index - 1].getContentDigest();
+                String leftHexStr = HashUtils.byte2hex(leftDigest);
                 
-                slice = "[" + HashUtils.byte2hex(leftDigest) + "," + slice + "]";
+                slice = "[" + leftHexStr + "," + parentHexStr + "," + slice + "]";
             }
         }
-        
-        // root node => [rootDigest,currentSlice]
-        byte[] rootDigest = getRootHash();
-        slice = "[" + HashUtils.byte2hex(rootDigest) + "," + slice + "]";
         
         return slice;
     }
@@ -156,18 +158,47 @@ public class FBHTree {
      * Parse and evaluate the root hash of the given slice recursively.
      * 
      * @return byte array of the root hash of the given slice
+     * @throws IllegalArgumentException if the slice has wrong format
+     * @throws VerifyError if any parent digest does not match to the digest of
+     *         the left child and the right child.
      */
     public static byte[] evalRootHashFromSlice(String slice) {
         if (slice.startsWith("[")) { // internal node
             slice = slice.substring(1, slice.length() - 1);
             
-            int commaPos = slice.indexOf(',');
-            String left = slice.substring(0, commaPos);
-            String right = slice.substring(commaPos + 1);
+            String left, parent, right;
             
-            return HashUtils.sha256(
+            // [left],parent,right or (left),parent,right
+            if (slice.startsWith("[") || slice.startsWith("(")) {
+                int comma = slice.lastIndexOf(',');
+                left = slice.substring(0, comma);
+                right = slice.substring(comma + 1);
+                
+                comma = left.lastIndexOf(',');
+                parent = left.substring(comma + 1);
+                left = left.substring(0, comma);
+            // left,parent,[right] or // left,parent,(right)
+            } else if (slice.endsWith("]") || slice.startsWith(")")) {
+                int comma = slice.indexOf(',');
+                left = slice.substring(0, comma);
+                right = slice.substring(comma + 1);
+                
+                comma = right.indexOf(',');
+                parent = right.substring(0, comma);
+                right = right.substring(comma + 1);
+            } else {
+                throw new IllegalArgumentException("Cannot parse slice: " + slice);
+            }
+            
+            byte[] evalRootHash = HashUtils.sha256(
                     evalRootHashFromSlice(left),
                     evalRootHashFromSlice(right));
+            
+            if (!Arrays.equals(evalRootHash, HashUtils.hex2byte(parent))) {
+                throw new VerifyError("Hashes of slice do not match.");
+            }
+            
+            return evalRootHash;
         } else if (slice.startsWith("(")) { // leaf node
             slice = slice.substring(1, slice.length() - 1);
             

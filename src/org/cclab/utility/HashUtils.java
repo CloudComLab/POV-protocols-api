@@ -76,9 +76,10 @@ public class HashUtils {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             InputStream is = new FileInputStream(file);
+            byte[] buffer = new byte[8192];
             
             try (DigestInputStream dis = new DigestInputStream(is, md)) {
-                while (dis.read() != -1);
+                while (dis.read(buffer) != -1);
             }
 
             return byte2hex(md.digest());
