@@ -178,7 +178,7 @@ public class FBHTree {
                 parent = left.substring(comma + 1);
                 left = left.substring(0, comma);
             // left,parent,[right] or // left,parent,(right)
-            } else if (slice.endsWith("]") || slice.startsWith(")")) {
+            } else if (slice.endsWith("]") || slice.endsWith(")")) {
                 int comma = slice.indexOf(',');
                 left = slice.substring(0, comma);
                 right = slice.substring(comma + 1);
