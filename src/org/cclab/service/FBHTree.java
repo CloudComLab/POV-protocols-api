@@ -23,11 +23,11 @@ public class FBHTree {
      * Construct a FBHTree with initial tree height.
      * @param treeHeight the initial tree height
      * @throws IllegalArgumentException if the specified initial tree height is
-     *         smaller than 2
+     *         smaller than 1
      */
     public FBHTree(int treeHeight) {
-        if (treeHeight < 2) {
-            throw new IllegalArgumentException("The minimum value for tree height is 2.");
+        if (treeHeight <= 0) {
+            throw new IllegalArgumentException("The minimum value for tree height is 1.");
         }
         
         this.height = treeHeight;
@@ -113,11 +113,14 @@ public class FBHTree {
     
     /**
      * Extract a slice from this FBHTree by specified key.
+     * 
      * @return a formatted slice string
+     * @throws NoSuchElementException if the specified key does not exist in this
+     *         FBHTree.
      */
-    public String extractSlice(String key) {
+    public String extractSlice(String key) throws NoSuchElementException {
         if (!contains(key)) {
-            return "";
+            throw new NoSuchElementException("The specified key does not exist in this FBHTree");
         }
         
         String slice = "";
@@ -300,7 +303,7 @@ public class FBHTree {
                 
                 return contents.values();
             } else {
-                return null;
+                throw new IllegalStateException("Internal node does not have contents.");
             }
         }
         
