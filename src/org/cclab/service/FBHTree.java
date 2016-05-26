@@ -1,5 +1,6 @@
 package org.cclab.service;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -13,7 +14,7 @@ import org.cclab.utility.HashUtils;
  *  
  * @author scott
  */
-public class FBHTree {
+public class FBHTree implements Serializable {
     private static final int DEFAULT_TREE_HEIGHT = 17;
     
     private final int height;
@@ -220,7 +221,7 @@ public class FBHTree {
     /**
      * Basic node for FBHTree.
      */
-    private static class Node {
+    private static class Node implements Serializable {
         private int id;
         private boolean isLeaf;
         private boolean dirty;

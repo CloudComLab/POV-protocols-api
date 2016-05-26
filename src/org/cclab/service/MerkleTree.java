@@ -1,6 +1,7 @@
 package org.cclab.service;
 
 import java.io.File;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import org.cclab.utility.HashUtils;
@@ -9,7 +10,7 @@ import org.cclab.utility.HashUtils;
  *
  * @author Scott
  */
-public class MerkleTree {
+public class MerkleTree implements Serializable {
     private final Node root;
     
     public MerkleTree(File root) {
@@ -56,7 +57,7 @@ public class MerkleTree {
         return root;
     }
     
-    public static class Node {
+    public static class Node implements Serializable {
         protected File file;
         
         private String digest;
