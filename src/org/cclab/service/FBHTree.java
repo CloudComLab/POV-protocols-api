@@ -2,7 +2,6 @@ package org.cclab.service;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +15,9 @@ import org.cclab.utility.HashUtils;
  */
 public class FBHTree implements Serializable {
     private static final int DEFAULT_TREE_HEIGHT = 17;
+    
+    private static final char SLICE_DELIMITER = '.';
+    private static final int ESTIMATED_SLICE_LENGTH = 4000;
     
     private final int height;
     private final Node[] nodes;
@@ -124,38 +126,60 @@ public class FBHTree implements Serializable {
             throw new NoSuchElementException("The specified key does not exist in this FBHTree");
         }
         
-        String slice = "";
-        
         int index = calcLeafIndex(key);
-        String delim = "";
+        String leftHexStr, rightHexStr;
+        StringBuilder sliceBuilder = new StringBuilder(ESTIMATED_SLICE_LENGTH);
+        
+        sliceBuilder.append(index).append(SLICE_DELIMITER);
         
         // leaf node => (digest1,digest2,digest3,...,digestN)
-        slice += "(";
+        StringBuilder leaf = new StringBuilder("(");
+        String delim = "";
         for (byte[] bytes: nodes[index].getContents()) {
-            slice += delim + HashUtils.byte2hex(bytes);
+            leaf.append(delim).append(HashUtils.byte2hex(bytes));
             delim = ",";
         }
-        slice += ")";
+        leftHexStr = rightHexStr = leaf.append(')').toString();
         
         // internal nodes
         for (; index > 1; index /= 2) {
-            byte[] parentDigest = nodes[index / 2].getContentDigest();
-            String parentHexStr = HashUtils.byte2hex(parentDigest);
-            
-            if (index % 2 == 0) { // left => [currentSlice,parentDigest,rightDigest]
-                byte[] rightDigest = nodes[index + 1].getContentDigest();
-                String rightHexStr = HashUtils.byte2hex(rightDigest);
-                
-                slice = "[" + slice + "," + parentHexStr + "," + rightHexStr + "]";
-            } else { // right => [leftDigest,parentDigest,currentSlice]
-                byte[] leftDigest = nodes[index - 1].getContentDigest();
-                String leftHexStr = HashUtils.byte2hex(leftDigest);
-                
-                slice = "[" + leftHexStr + "," + parentHexStr + "," + slice + "]";
+            if (index % 2 == 0) {
+                rightHexStr = nodes[index + 1].getContentDigestHexString();
+            } else {
+                leftHexStr = nodes[index - 1].getContentDigestHexString();
             }
+            
+            sliceBuilder
+                    .append(leftHexStr)
+                    .append(SLICE_DELIMITER)
+                    .append(rightHexStr)
+                    .append(SLICE_DELIMITER);
+            
+            leftHexStr = rightHexStr = nodes[index / 2].getContentDigestHexString();
         }
         
-        return slice;
+        // root hash must be in the right (2/2=1, 3/2=1, 1%2=1)
+        sliceBuilder.append(rightHexStr);
+        
+        return sliceBuilder.toString();
+    }
+    
+    /**
+     * Parse and evalute the digest value of formatted leaf node in the
+     * slice.
+     * 
+     * @param leaf is formatted in "(digest1,digest2,digest3,...,digestN)".
+     * @return byte array of the digest of the formatted leaf node.
+     */
+    private static byte[] evalLeafOfSlice(String leaf) {
+        List<byte[]> digests = new ArrayList<>();
+        String hashes = leaf.substring(1, leaf.length() - 1);
+
+        for (String s: hashes.split(",")) {
+            digests.add(HashUtils.hex2byte(s));
+        }
+
+        return HashUtils.sha256(digests);
     }
     
     /**
@@ -167,55 +191,30 @@ public class FBHTree implements Serializable {
      *         the left child and the right child.
      */
     public static byte[] evalRootHashFromSlice(String slice) {
-        if (slice.startsWith("[")) { // internal node
-            slice = slice.substring(1, slice.length() - 1);
+        String[] tokens = slice.split(String.valueOf(SLICE_DELIMITER));
+        int index = Integer.parseInt(tokens[0]);
+        
+        if (tokens[1].startsWith("(")) {
+            tokens[1] = HashUtils.byte2hex(evalLeafOfSlice(tokens[1]));
+        } else {
+            tokens[2] = HashUtils.byte2hex(evalLeafOfSlice(tokens[2]));
+        }
+        
+        int parentIndex;
+        byte[] parentDigest = null;
+        
+        for (int i = 1; index > 1; i += 2, index /= 2) {
+            parentIndex = i + 2 + (index / 2) % 2;
+            parentDigest = HashUtils.sha256(
+                    HashUtils.hex2byte(tokens[i]),
+                    HashUtils.hex2byte(tokens[i + 1]));
             
-            String left, parent, right;
-            
-            // [left],parent,right or (left),parent,right
-            if (slice.startsWith("[") || slice.startsWith("(")) {
-                int comma = slice.lastIndexOf(',');
-                left = slice.substring(0, comma);
-                right = slice.substring(comma + 1);
-                
-                comma = left.lastIndexOf(',');
-                parent = left.substring(comma + 1);
-                left = left.substring(0, comma);
-            // left,parent,[right] or // left,parent,(right)
-            } else if (slice.endsWith("]") || slice.endsWith(")")) {
-                int comma = slice.indexOf(',');
-                left = slice.substring(0, comma);
-                right = slice.substring(comma + 1);
-                
-                comma = right.indexOf(',');
-                parent = right.substring(0, comma);
-                right = right.substring(comma + 1);
-            } else {
-                throw new IllegalArgumentException("Cannot parse slice: " + slice);
-            }
-            
-            byte[] evalRootHash = HashUtils.sha256(
-                    evalRootHashFromSlice(left),
-                    evalRootHashFromSlice(right));
-            
-            if (!Arrays.equals(evalRootHash, HashUtils.hex2byte(parent))) {
+            if (!HashUtils.byte2hex(parentDigest).equals(tokens[parentIndex])) {
                 throw new VerifyError("Hashes of slice do not match.");
             }
-            
-            return evalRootHash;
-        } else if (slice.startsWith("(")) { // leaf node
-            slice = slice.substring(1, slice.length() - 1);
-            
-            List<byte[]> digests = new ArrayList<>();
-            
-            for (String s: slice.split(",")) {
-                digests.add(HashUtils.hex2byte(s));
-            }
-            
-            return HashUtils.sha256(digests);
-        } else { // hex string, convert to byte[]
-            return HashUtils.hex2byte(slice);
         }
+        
+        return parentDigest;
     }
     
     /**
@@ -226,6 +225,7 @@ public class FBHTree implements Serializable {
         private boolean isLeaf;
         private boolean dirty;
         private byte[] contentDigest;
+        private String contentDigestHexStr;
         
         private Node leftChild;
         private Node rightChild;
@@ -249,6 +249,7 @@ public class FBHTree implements Serializable {
                         rightChild.getContentDigest());
             }
             
+            this.contentDigestHexStr = HashUtils.byte2hex(contentDigest);
             this.contents = null;
         }
         
@@ -294,6 +295,14 @@ public class FBHTree implements Serializable {
             }
             
             return contentDigest;
+        }
+        
+        public String getContentDigestHexString() {
+            if (isDirty()) {
+                contentDigestHexStr = HashUtils.byte2hex(getContentDigest());
+            }
+            
+            return contentDigestHexStr;
         }
         
         public Collection<byte[]> getContents() {
