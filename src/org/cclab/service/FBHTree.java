@@ -1,10 +1,8 @@
 package org.cclab.service;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Random;
 import org.cclab.utility.HashUtils;
 
@@ -17,7 +15,7 @@ public class FBHTree implements Serializable {
     private static final int DEFAULT_TREE_HEIGHT = 17;
     
     private static final char SLICE_DELIMITER = '.';
-    private static final int ESTIMATED_SLICE_LENGTH = 4000;
+    private static final int ESTIMATED_SLICE_LENGTH = 8192;
     
     private final int height;
     private final Node[] nodes;
@@ -132,17 +130,10 @@ public class FBHTree implements Serializable {
         
         sliceBuilder.append(index).append(SLICE_DELIMITER);
         
-        // leaf node => (digest1,digest2,digest3,...,digestN)
-        StringBuilder leaf = new StringBuilder("(");
-        String delim = "";
-        for (byte[] bytes: nodes[index].getContents()) {
-            leaf.append(delim).append(HashUtils.byte2hex(bytes));
-            delim = ",";
-        }
-        leftHexStr = rightHexStr = leaf.append(')').toString();
-        
         // internal nodes
         for (; index > 1; index /= 2) {
+            leftHexStr = rightHexStr = nodes[index].getContentDigestHexString();
+            
             if (index % 2 == 0) {
                 rightHexStr = nodes[index + 1].getContentDigestHexString();
             } else {
@@ -154,32 +145,11 @@ public class FBHTree implements Serializable {
                     .append(SLICE_DELIMITER)
                     .append(rightHexStr)
                     .append(SLICE_DELIMITER);
-            
-            leftHexStr = rightHexStr = nodes[index / 2].getContentDigestHexString();
         }
         
-        // root hash must be in the right (2/2=1, 3/2=1, 1%2=1)
-        sliceBuilder.append(rightHexStr);
+        sliceBuilder.append(nodes[1].getContentDigestHexString());
         
         return sliceBuilder.toString();
-    }
-    
-    /**
-     * Parse and evalute the digest value of formatted leaf node in the
-     * slice.
-     * 
-     * @param leaf is formatted in "(digest1,digest2,digest3,...,digestN)".
-     * @return byte array of the digest of the formatted leaf node.
-     */
-    private static byte[] evalLeafOfSlice(String leaf) {
-        List<byte[]> digests = new ArrayList<>();
-        String hashes = leaf.substring(1, leaf.length() - 1);
-
-        for (String s: hashes.split(",")) {
-            digests.add(HashUtils.hex2byte(s));
-        }
-
-        return HashUtils.sha256(digests);
     }
     
     /**
@@ -191,20 +161,14 @@ public class FBHTree implements Serializable {
      *         the left child and the right child.
      */
     public static byte[] evalRootHashFromSlice(String slice) {
-        String[] tokens = slice.split(String.valueOf(SLICE_DELIMITER));
+        String[] tokens = slice.split(String.valueOf("\\" + SLICE_DELIMITER));
         int index = Integer.parseInt(tokens[0]);
-        
-        if (tokens[1].startsWith("(")) {
-            tokens[1] = HashUtils.byte2hex(evalLeafOfSlice(tokens[1]));
-        } else {
-            tokens[2] = HashUtils.byte2hex(evalLeafOfSlice(tokens[2]));
-        }
         
         int parentIndex;
         byte[] parentDigest = null;
         
         for (int i = 1; index > 1; i += 2, index /= 2) {
-            parentIndex = i + 2 + (index / 2) % 2;
+            parentIndex = i + 2 + (index / 2 == 1 ? 0 : index / 2) % 2;
             parentDigest = HashUtils.sha256(
                     HashUtils.hex2byte(tokens[i]),
                     HashUtils.hex2byte(tokens[i + 1]));
