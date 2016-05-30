@@ -156,7 +156,6 @@ public class FBHTree implements Serializable {
      * Parse and evaluate the root hash of the given slice recursively.
      * 
      * @return byte array of the root hash of the given slice
-     * @throws IllegalArgumentException if the slice has wrong format
      * @throws VerifyError if any parent digest does not match to the digest of
      *         the left child and the right child.
      */
@@ -185,14 +184,14 @@ public class FBHTree implements Serializable {
      * Basic node for FBHTree.
      */
     private static class Node implements Serializable {
-        private int id;
-        private boolean isLeaf;
+        private final int id;
+        private final boolean isLeaf;
         private boolean dirty;
         private byte[] contentDigest;
         private String contentDigestHexStr;
         
-        private Node leftChild;
-        private Node rightChild;
+        private final Node leftChild;
+        private final Node rightChild;
         private LinkedHashMap<String, byte[]> contents;
         
         public Node(int id, Node leftChild, Node rightChild) {
@@ -223,7 +222,7 @@ public class FBHTree implements Serializable {
             }
             
             contents.put(key, bytes);
-            dirty = true;
+            setDirty(true);
         }
         
         public boolean contains(String key) {
@@ -237,7 +236,7 @@ public class FBHTree implements Serializable {
         public boolean remove(String key) {
             if (contains(key)) {
                 contents.remove(key);
-                dirty = true;
+                setDirty(true);
                 
                 return true;
             } else {
@@ -245,7 +244,7 @@ public class FBHTree implements Serializable {
             }
         }
         
-        public byte[] getContentDigest() {
+        private void updateContentDigest() {
             if (isDirty()) {
                 if (isLeaf) {
                     contentDigest = HashUtils.sha256(contents.values());
@@ -255,16 +254,20 @@ public class FBHTree implements Serializable {
                             rightChild.getContentDigest());
                 }
                 
+                contentDigestHexStr = HashUtils.byte2hex(contentDigest);
+                
                 setDirty(false);
             }
+        }
+        
+        public byte[] getContentDigest() {
+            updateContentDigest();
             
             return contentDigest;
         }
         
         public String getContentDigestHexString() {
-            if (isDirty()) {
-                contentDigestHexStr = HashUtils.byte2hex(getContentDigest());
-            }
+            updateContentDigest();
             
             return contentDigestHexStr;
         }
