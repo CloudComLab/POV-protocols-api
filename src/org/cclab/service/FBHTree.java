@@ -13,32 +13,37 @@ import org.cclab.utility.HashUtils;
  */
 public class FBHTree implements Serializable {
     private static final int DEFAULT_TREE_HEIGHT = 17;
+    private static final boolean DEFAULT_ENABLED_LAZY_UPDATE = false;
     
     private static final char SLICE_DELIMITER = '.';
     private static final int ESTIMATED_SLICE_LENGTH = 8192;
     
     private final int height;
+    private final boolean lazyUpdate;
     private final Node[] nodes;
     
     /**
      * Construct a FBHTree with initial tree height.
      * @param treeHeight the initial tree height
+     * @param enableLazyUpdate specified whether the root hash re-calculates
+     *         when any leaf node is updated without being read.
      * @throws IllegalArgumentException if the specified initial tree height is
      *         smaller than 1
      */
-    public FBHTree(int treeHeight) {
+    public FBHTree(int treeHeight, boolean enableLazyUpdate) {
         if (treeHeight <= 0) {
             throw new IllegalArgumentException("The minimum value for tree height is 1.");
         }
         
         this.height = treeHeight;
+        this.lazyUpdate = enableLazyUpdate;
         this.nodes = new Node[1 << height];
         
         for (int i = nodes.length - 1; i > 0; i--) {
             if (i >= (1 << (height - 1))) { // leaf node
-                nodes[i] = new Node(i, null, null);
+                nodes[i] = new Node(i, null, null, lazyUpdate);
             } else { // internal node
-                nodes[i] = new Node(i, nodes[i * 2], nodes[(i * 2) + 1]);
+                nodes[i] = new Node(i, nodes[i * 2], nodes[(i * 2) + 1], lazyUpdate);
             }
         }
     }
@@ -46,8 +51,15 @@ public class FBHTree implements Serializable {
     /**
      * Construct a FBHTree with default tree height.
      */
+    public FBHTree(int treeHeight) {
+        this(treeHeight, DEFAULT_ENABLED_LAZY_UPDATE);
+    }
+    
+    /**
+     * Construct a FBHTree with default settings.
+     */
     public FBHTree() {
-        this(DEFAULT_TREE_HEIGHT);
+        this(DEFAULT_TREE_HEIGHT, DEFAULT_ENABLED_LAZY_UPDATE);
     }
     
     /**
@@ -187,6 +199,7 @@ public class FBHTree implements Serializable {
         private final int id;
         private final boolean isLeaf;
         private boolean dirty;
+        private final boolean lazyUpdate;
         private byte[] contentDigest;
         private String contentDigestHexStr;
         
@@ -194,9 +207,10 @@ public class FBHTree implements Serializable {
         private final Node rightChild;
         private LinkedHashMap<String, byte[]> contents;
         
-        public Node(int id, Node leftChild, Node rightChild) {
+        public Node(int id, Node leftChild, Node rightChild, boolean enableLazyUpdate) {
             this.id = id;
             this.dirty = false;
+            this.lazyUpdate = enableLazyUpdate;
             this.leftChild = leftChild;
             this.rightChild = rightChild;
             
@@ -286,6 +300,10 @@ public class FBHTree implements Serializable {
         
         public void setDirty(boolean dirty) {
             this.dirty = dirty;
+            
+            if (!lazyUpdate && this.dirty) {
+                updateContentDigest();
+            }
         }
         
         public boolean isDirty() {
