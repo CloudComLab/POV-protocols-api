@@ -1,8 +1,9 @@
 package org.cclab.service;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Random;
 import org.cclab.utility.HashUtils;
 
@@ -21,6 +22,7 @@ public class FBHTree implements Serializable {
     private final int height;
     private final boolean lazyUpdate;
     private final Node[] nodes;
+    private int size;
     
     /**
      * Construct a FBHTree with initial tree height.
@@ -38,6 +40,7 @@ public class FBHTree implements Serializable {
         this.height = treeHeight;
         this.lazyUpdate = enableLazyUpdate;
         this.nodes = new Node[1 << height];
+        this.size = 0;
         
         for (int i = nodes.length - 1; i > 0; i--) {
             if (i >= (1 << (height - 1))) { // leaf node
@@ -92,6 +95,8 @@ public class FBHTree implements Serializable {
         for (int i = index; i > 0; i >>= 1) {
             nodes[i].setDirty(true);
         }
+        
+        size += 1;
     }
     
     /**
@@ -114,7 +119,13 @@ public class FBHTree implements Serializable {
             nodes[i].setDirty(true);
         }
         
-        return nodes[index].remove(key);
+        if (nodes[index].remove(key)) {
+            size -= 1;
+            
+            return true;
+        } else {
+            return false;
+        }
     }
     
     /**
@@ -122,6 +133,13 @@ public class FBHTree implements Serializable {
      */
     public byte[] getRootHash() {
         return nodes[1].getContentDigest();
+    }
+    
+    /**
+     * Returns the number of values in this FBHTree.
+     */
+    public int size() {
+        return size;
     }
     
     /**
@@ -196,16 +214,20 @@ public class FBHTree implements Serializable {
      * Basic node for FBHTree.
      */
     private static class Node implements Serializable {
+        private static final int DEFAULT_LIST_SIZE = 1;
+        
         private final int id;
         private final boolean isLeaf;
         private boolean dirty;
         private final boolean lazyUpdate;
         private byte[] contentDigest;
-        private String contentDigestHexStr;
+        private transient String contentDigestHexStr;
         
         private final Node leftChild;
         private final Node rightChild;
-        private LinkedHashMap<String, byte[]> contents;
+        
+        private List<String> contentKeys;
+        private List<byte[]> contentValues;
         
         public Node(int id, Node leftChild, Node rightChild, boolean enableLazyUpdate) {
             this.id = id;
@@ -227,29 +249,39 @@ public class FBHTree implements Serializable {
             }
             
             this.contentDigestHexStr = HashUtils.byte2hex(contentDigest);
-            this.contents = null;
+            this.contentKeys = null;
+            this.contentValues = null;
         }
         
         public void put(String key, byte[] bytes) {
-            if (contents == null) {
-                contents = new LinkedHashMap<>();
+            if (contentKeys == null) {
+                contentKeys = new ArrayList<>(DEFAULT_LIST_SIZE);
+                contentValues = new ArrayList<>(DEFAULT_LIST_SIZE);
             }
             
-            contents.put(key, bytes);
+            contentKeys.add(key);
+            contentValues.add(bytes);
             setDirty(true);
         }
         
-        public boolean contains(String key) {
-            if (contents != null) {
-                return contents.containsKey(key);
+        protected int indexOf(String key) {
+            if (contentKeys != null) {
+                return contentKeys.indexOf(key);
             } else {
-                return false;
+                return -1;
             }
         }
         
+        public boolean contains(String key) {
+            return indexOf(key) >= 0;
+        }
+        
         public boolean remove(String key) {
-            if (contains(key)) {
-                contents.remove(key);
+            int index = indexOf(key);
+            
+            if (index >= 0) {
+                contentKeys.remove(index);
+                contentValues.remove(index);
                 setDirty(true);
                 
                 return true;
@@ -259,9 +291,14 @@ public class FBHTree implements Serializable {
         }
         
         private void updateContentDigest() {
-            if (isDirty()) {
+            if (isDirty() || contentDigestHexStr == null) {
                 if (isLeaf) {
-                    contentDigest = HashUtils.sha256(contents.values());
+                    if (contentKeys == null) {
+                        contentKeys = new ArrayList<>(DEFAULT_LIST_SIZE);
+                        contentValues = new ArrayList<>(DEFAULT_LIST_SIZE);
+                    }
+                    
+                    contentDigest = HashUtils.sha256(contentValues);
                 } else {
                     contentDigest = HashUtils.sha256(
                             leftChild.getContentDigest(),
@@ -286,13 +323,18 @@ public class FBHTree implements Serializable {
             return contentDigestHexStr;
         }
         
+        public int size() {
+            return contentKeys.size();
+        }
+        
         public Collection<byte[]> getContents() {
             if (isLeaf) {
-                if (contents == null) {
-                    contents = new LinkedHashMap<>();
+                if (contentKeys == null) {
+                    contentKeys = new ArrayList<>(DEFAULT_LIST_SIZE);
+                    contentValues = new ArrayList<>(DEFAULT_LIST_SIZE);
                 }
                 
-                return contents.values();
+                return contentValues;
             } else {
                 throw new IllegalStateException("Internal node does not have contents.");
             }
